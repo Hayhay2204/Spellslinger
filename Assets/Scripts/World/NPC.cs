@@ -17,9 +17,19 @@ namespace SpellSlinger
         [Tooltip("If this is on they teach their sects spell at the end of the conversation")]
         public bool teaches;
         public Element teachesElement;
+        [Tooltip("Optional. Plays a state called Teach when they teach you their spell")]
+        public Animator animator;
 
         public bool IsMentor => teaches;
         public Vector3 HeadPosition => transform.position + Vector3.up * 2.2f;
+
+        // Plays their spell casting animation when they teach you something
+        public void PlayTeach()
+        {
+            if (!animator || !animator.runtimeAnimatorController) return;
+            int hash = Animator.StringToHash("Teach");
+            if (animator.HasState(0, hash)) animator.CrossFadeInFixedTime(hash, 0.2f);
+        }
 
         void OnEnable() => All.Add(this);
         void OnDisable() => All.Remove(this);

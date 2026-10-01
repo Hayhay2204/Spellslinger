@@ -83,6 +83,7 @@ namespace SpellSlinger
             if (npc && npc.teaches && !PlayerMagic.Knows(npc.teachesElement))
             {
                 PlayerMagic.Learn(npc.teachesElement);
+                npc.PlayTeach();
                 var spell = SpellBook.Get(npc.teachesElement);
                 caster.ShowMessage($"Learned {spell.Name}!  Draw a {spell.Glyph}", spell.Color);
                 FX.Burst(player.transform.position + Vector3.up, spell.Color, 80, 5f, 0.15f, 1.2f, -0.5f);

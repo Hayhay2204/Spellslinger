@@ -22,10 +22,20 @@ namespace SpellSlinger
         public Renderer bodyRenderer;
         [ColorUsage(false, true)] public Color emissionColor = new(0.6f, 0.15f, 1.3f);
 
+        [Header("Animation")]
+        [Tooltip("Optional. Uses states called Idle, Move, Attack, Hit and Death if the controller has them")]
+        public Animator animator;
+        [Tooltip("How long the body stays around to play its death animation")]
+        public float deathTime = 1.2f;
+        [Tooltip("How long its spawn animation is, it wont start moving until this is done")]
+        public float spawnTime;
+
         public Vector3 Home { get; set; }
 
-        Material bodyMat;
-        Color baseColor;
+        Material[] mats;
+        Color[] baseColors;
+        string currentAnim;
+        float actionUntil;
         Vector3 knockback;
         float attackReadyAt, lastRepel, flash, lastHitTime;
         float bobPhase;
@@ -34,16 +44,41 @@ namespace SpellSlinger
         void Awake()
         {
             Health = maxHealth;
-            bodyMat = bodyRenderer.material; // makes a copy of the material so when one husk flashes they dont all flash
-            baseColor = bodyMat.GetColor("_BaseColor");
+            // makes copies of the materials so when one husk flashes they dont all flash
+            mats = bodyRenderer.materials;
+            baseColors = new Color[mats.Length];
+            for (int i = 0; i < mats.Length; i++)
+            {
+                mats[i].EnableKeyword("_EMISSION");
+                baseColors[i] = mats[i].HasProperty("_BaseColor") ? mats[i].GetColor("_BaseColor") : Color.white;
+            }
             bobPhase = Random.value * 10f;
             Home = transform.position;
+            actionUntil = Time.time + spawnTime;
         }
 
-        void OnDestroy() { if (bodyMat) Destroy(bodyMat); }
+        void OnDestroy()
+        {
+            if (mats == null) return;
+            foreach (var m in mats) if (m) Destroy(m);
+        }
+
+        // Crossfades to an animation state if the animator has one with that name
+        void PlayAnim(string state, float actionLength = 0f)
+        {
+            if (!animator || !animator.runtimeAnimatorController) return;
+            if (actionLength <= 0f && (currentAnim == state || Time.time < actionUntil)) return;
+            int hash = Animator.StringToHash(state);
+            if (!animator.HasState(0, hash)) return;
+            animator.CrossFadeInFixedTime(hash, 0.15f);
+            currentAnim = state;
+            if (actionLength > 0f) actionUntil = Time.time + actionLength;
+        }
 
         void Update()
         {
+            if (IsDead) return; // just playing the death animation now
+            if (Time.time < actionUntil && currentAnim == null) return; // still climbing out of the ground
             float dt = Time.deltaTime;
             float now = Time.time;
             UpdateVisuals(dt, now);
@@ -87,11 +122,13 @@ namespace SpellSlinger
                 if (m < min && m > 0.001f) vel += d / m * (min - m) * 6f;
             }
 
+            PlayAnim(vel.sqrMagnitude > 0.25f ? "Move" : "Idle");
             vel += knockback;
             knockback *= Mathf.Exp(-5f * dt);
 
             Vector3 pos = transform.position + vel * dt;
-            float targetY = World.HeightAt(pos) + hoverHeight + Mathf.Sin(now * 2f + bobPhase) * 0.2f;
+            float bob = hoverHeight > 0.5f ? Mathf.Sin(now * 2f + bobPhase) * 0.2f : 0f; // only floating ones bob
+            float targetY = World.HeightAt(pos) + hoverHeight + bob;
             pos.y = Mathf.Lerp(pos.y, targetY, 1f - Mathf.Exp(-4f * dt));
             transform.position = pos;
             if (!IsStunned) transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(dir), 1f - Mathf.Exp(-8f * dt));
@@ -101,6 +138,7 @@ namespace SpellSlinger
                 attackReadyAt = now + 1.1f;
                 player.TakeDamage(contactDamage);
                 knockback = -dir * 7f;
+                PlayAnim("Attack", 0.6f);
             }
         }
 
@@ -109,11 +147,15 @@ namespace SpellSlinger
         void UpdateVisuals(float dt, float now)
         {
             flash = Mathf.MoveTowards(flash, 0f, dt * 6f);
-            Color c = IsRooted ? new Color(0.25f, 0.5f, 0.15f) : baseColor;
+            Color c = new Color(0.25f, 0.5f, 0.15f);
             Color e = IsRooted ? new Color(0.3f, 1.2f, 0.2f) : emissionColor;
             if (IsStunned) e += new Color(0.6f, 0.5f, 1.2f) * (0.5f + 0.5f * Mathf.Sin(now * 60f));
-            bodyMat.SetColor("_BaseColor", Color.Lerp(c, Color.white, flash));
-            bodyMat.SetColor("_EmissionColor", e + Color.white * flash * 3f);
+            for (int i = 0; i < mats.Length; i++)
+            {
+                Color b = IsRooted ? Color.Lerp(baseColors[i], c, 0.6f) : baseColors[i];
+                mats[i].SetColor("_BaseColor", Color.Lerp(b, Color.white, flash));
+                mats[i].SetColor("_EmissionColor", e + Color.white * flash * 3f);
+            }
         }
 
         public override void TakeDamage(float amount, Vector3 impulse, Element element)
@@ -124,6 +166,7 @@ namespace SpellSlinger
             flash = 1f;
             lastHitTime = Time.time;
             chasing = true;
+            if (Health > 0f) PlayAnim("Hit", 0.3f);
             GameHUD.Popup(transform.position + Vector3.up * (radius + 0.3f), Mathf.RoundToInt(amount).ToString(), Color.white);
             if (Health <= 0f)
             {
@@ -147,12 +190,14 @@ namespace SpellSlinger
         void Die()
         {
             IsDead = true;
+            PlayAnim("Death", 10f);
+            foreach (var col in GetComponentsInChildren<Collider>()) col.enabled = false;
             FX.Burst(transform.position, new Color(0.6f, 0.2f, 1f), 45, 6f, 0.25f, 0.9f, -0.3f);
             FX.Burst(transform.position, new Color(0.1f, 0.05f, 0.2f), 20, 3f, 0.6f, 0.6f);
             SFX.PlayAt(SFX.Pop, transform.position, 0.8f);
             foreach (var ps in GetComponentsInChildren<ParticleSystem>()) FX.Detach(ps);
             Killed?.Invoke(this);
-            Destroy(gameObject);
+            Destroy(gameObject, animator ? deathTime : 0f);
         }
     }
 }

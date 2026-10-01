@@ -27,7 +27,8 @@ namespace SpellSlinger
         {
             var cam = Camera.main;
             if (!cam) { gulp?.Invoke(); return; }
-            if (!instance) instance = cam.GetComponent<CameraFocus>() ?? cam.gameObject.AddComponent<CameraFocus>();
+            // TryGetComponent instead of ?? because in the editor GetComponent gives back a fake null that ?? doesnt catch
+            if (!instance && !cam.TryGetComponent(out instance)) instance = cam.gameObject.AddComponent<CameraFocus>();
             instance.Begin(cam, point, seconds, gulpDelay, gulp);
         }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using UnityEngine;
 
 namespace SpellSlinger
@@ -26,6 +27,22 @@ namespace SpellSlinger
         public Renderer[] coreRenderers;
         public Light coreLight;
 
+        [Header("Model")]
+        [Tooltip("Optional. Uses states called Idle, TakeOff, Fly and Attack")]
+        public Animator animator;
+        [Tooltip("Palette textures for each magic it has eaten, in the same order as the Element list (Storm, Fire, Earth, Air, Nature)")]
+        public Texture2D[] palettes;
+        [Tooltip("How high off the ground it sits while asleep")]
+        public float restHeight = 6f;
+        [Tooltip("Where spells aim at, relative to its position (the middle of its body)")]
+        public Vector3 aimOffset = new(0f, 1f, 0f);
+        [Tooltip("How strongly it glows the colour of the last magic it ate")]
+        public float eatenGlow = 0.35f;
+
+        [Header("Hitbox")]
+        [Tooltip("How often the hitbox gets rebuilt from the animated model so it always matches what you see")]
+        public float hitboxRefresh = 0.2f;
+
         [Header("Attack prefabs")]
         public BossProjectile voidOrbPrefab;
         public BossProjectile fireballPrefab;
@@ -51,10 +68,13 @@ namespace SpellSlinger
         float orbitAngle;
         Vector3 home;
         Material coreMat, bodyMat;
-        Color hideEmission;
+        Color glow;
+        SkinnedMeshRenderer skin;
+        Transform[] hitBones;
+        float nextHitbox;
         float roar, hitFlash;
 
-        public override Vector3 AimPoint => transform.position + Vector3.up * 1f;
+        public override Vector3 AimPoint => transform.position + transform.rotation * aimOffset;
 
         void Awake()
         {
@@ -62,7 +82,8 @@ namespace SpellSlinger
             home = transform.position;
             bodyMat = SharedInstance(hideRenderers);
             coreMat = SharedInstance(coreRenderers);
-            hideEmission = bodyMat ? bodyMat.GetColor("_EmissionColor") : Color.black;
+            if (bodyMat) bodyMat.EnableKeyword("_EMISSION");
+            SetUpHitbox();
             ResetFight();
             PlayerController.Respawned += ResetFight;
         }
@@ -98,7 +119,73 @@ namespace SpellSlinger
             immunities.Add(Element.Storm);
             eatenOrder.Add(Element.Storm);
             CoreColor = SpellBook.Get(Element.Storm).Color;
+            SetPalette(Element.Storm);
+            PlayAnim("Idle");
             transform.position = home;
+        }
+
+        // Swaps the dragons colours to match the magic it just ate
+        void SetPalette(Element element)
+        {
+            int i = (int)element;
+            if (bodyMat && palettes != null && i < palettes.Length && palettes[i]) bodyMat.SetTexture("_BaseMap", palettes[i]);
+            glow = SpellBook.Get(element).Color * eatenGlow;
+        }
+
+        // The model is animated so a box never matches it, especially with the wings out. Instead every
+        // bone gets a sphere collider sized to the bone, so the hitbox moves with the animation exactly
+        void SetUpHitbox()
+        {
+            skin = GetComponentInChildren<SkinnedMeshRenderer>();
+            if (!skin || skin.bones == null || skin.bones.Length == 0) return;
+
+            hitBones = skin.bones.Where(bone => bone).ToArray();
+            float size = BoneBounds().size.magnitude;
+            foreach (var bone in hitBones)
+            {
+                if (bone.childCount == 0) continue; // the "_end" bones at the tips
+                Vector3 end = bone.GetChild(0).position;
+                float length = Vector3.Distance(bone.position, end);
+                if (length < 0.01f) continue;
+
+                float worldRadius = Mathf.Clamp(length * 0.6f, size * 0.02f, size * 0.08f);
+                var sphere = bone.gameObject.AddComponent<SphereCollider>();
+                float scale = Mathf.Max(bone.lossyScale.x, bone.lossyScale.y, bone.lossyScale.z);
+                sphere.center = bone.InverseTransformPoint((bone.position + end) * 0.5f);
+                sphere.radius = worldRadius / Mathf.Max(scale, 0.0001f);
+            }
+
+            // the colliders move every frame so give the boss a kinematic rigidbody, physics likes that better
+            var body = GetComponent<Rigidbody>();
+            if (!body) body = gameObject.AddComponent<Rigidbody>();
+            body.isKinematic = true;
+            body.useGravity = false;
+
+            foreach (var box in GetComponents<BoxCollider>()) box.enabled = false;
+            RefreshHitbox();
+        }
+
+        // Keeps the aim point and size matched to where the bones are right now, explosions use these
+        void RefreshHitbox()
+        {
+            nextHitbox = Time.time + hitboxRefresh;
+            var b = BoneBounds();
+            aimOffset = Quaternion.Inverse(transform.rotation) * (b.center - transform.position);
+            radius = Mathf.Max(b.extents.x, b.extents.y, b.extents.z) * 0.6f;
+        }
+
+        Bounds BoneBounds()
+        {
+            var b = new Bounds(hitBones[0].position, Vector3.zero);
+            foreach (var bone in hitBones) b.Encapsulate(bone.position);
+            return b;
+        }
+
+        void PlayAnim(string state)
+        {
+            if (!animator || !animator.runtimeAnimatorController) return;
+            int hash = Animator.StringToHash(state);
+            if (animator.HasState(0, hash)) animator.CrossFadeInFixedTime(hash, 0.25f);
         }
 
         // Movement and attacking
@@ -106,6 +193,7 @@ namespace SpellSlinger
         void Update()
         {
             if (IsDead) return;
+            if (hitBones != null && Time.time >= nextHitbox) RefreshHitbox();
             var player = PlayerController.Instance;
             if (!player) return;
             float dt = Time.deltaTime;
@@ -139,6 +227,7 @@ namespace SpellSlinger
                 float hp = Health / maxHealth;
                 nextAttack = Time.time + Mathf.Lerp(1.5f, 3.2f, hp);
                 Attack(player);
+                PlayAnim("Attack");
             }
 
             Animate(dt);
@@ -146,7 +235,7 @@ namespace SpellSlinger
 
         void Idle(float dt)
         {
-            Vector3 rest = World.OnGround(home, 6f + Mathf.Sin(Time.time * 0.5f) * 0.5f);
+            Vector3 rest = World.OnGround(home, restHeight);
             transform.position = Vector3.Lerp(transform.position, rest, 1f - Mathf.Exp(-1f * dt));
             Animate(dt);
         }
@@ -155,6 +244,7 @@ namespace SpellSlinger
         {
             IsAwake = true;
             nextAttack = Time.time + 2.5f;
+            PlayAnim("TakeOff");
             roar = 1f;
             SFX.PlayAt(SFX.Boom, transform.position, 1f);
             CameraShake.Add(0.6f);
@@ -221,6 +311,7 @@ namespace SpellSlinger
             {
                 if (!this) return; // it died before the gulp happened
                 CoreColor = spell.Color;
+                SetPalette(element);
                 roar = 1f;
                 FX.Burst(AimPoint, spell.Color, 120, 14f, 0.5f, 1.5f, -2f);
                 FX.Flash(AimPoint, spell.Color, 20f, 60f, 1.2f);
@@ -363,7 +454,7 @@ namespace SpellSlinger
             float pulse = 1.5f + Mathf.Sin(Time.time * 4f) * 0.5f + roar * 4f;
             if (coreMat) coreMat.SetColor("_BaseColor", CoreColor * pulse * 2f);
             if (coreLight) coreLight.color = CoreColor;
-            if (bodyMat) bodyMat.SetColor("_EmissionColor", hideEmission + Color.white * hitFlash * 0.8f);
+            if (bodyMat) bodyMat.SetColor("_EmissionColor", glow * (1f + roar * 4f) + Color.white * hitFlash * 0.8f);
         }
     }
 }

@@ -62,21 +62,31 @@ namespace SpellSlinger
                     Physics.DefaultRaycastLayers, QueryTriggerInteraction.Ignore))
             {
                 transform.position = hit.point + hit.normal * radius;
-                Impact(transform.position);
+                Impact(transform.position, hit.collider);
                 return;
             }
 
             transform.position += step;
-            if (lifetime <= 0f) Impact(transform.position);
+            if (lifetime <= 0f) Impact(transform.position, null);
         }
 
-        void Impact(Vector3 pos)
+        void Impact(Vector3 pos, Collider hitCollider)
         {
             if (done) return;
             done = true;
 
+            // whatever it actually hit always takes full damage, even big things like the boss
+            // where the middle of it is further away than the blast reaches
+            var direct = hitCollider ? hitCollider.GetComponentInParent<Combatant>() : null;
+            if (direct && !direct.IsDead)
+            {
+                direct.TakeDamage(damage, velocity.normalized * knockback + Vector3.up * upwardKnockback, element);
+                if (stunTime > 0f) direct.Stun(stunTime, element);
+            }
+
             foreach (var t in Combatant.InRadius(pos, blastRadius))
             {
+                if (t == direct) continue;
                 Vector3 away = (t.AimPoint - pos).normalized;
                 float falloff = damageFalloff ? 1f - 0.5f * Mathf.Clamp01(Vector3.Distance(t.AimPoint, pos) / (blastRadius + t.radius)) : 1f;
                 t.TakeDamage(damage * falloff, away * knockback + Vector3.up * upwardKnockback, element);
