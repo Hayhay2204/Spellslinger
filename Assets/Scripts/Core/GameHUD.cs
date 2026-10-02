@@ -46,7 +46,7 @@ namespace SpellSlinger
         void Update()
         {
             var kb = Keyboard.current;
-            if (kb == null || !player) return;
+            if (kb == null || !player || GameTime.Paused) return;
 
             // Show the zone name when you walk into a new area
             var zone = World.ZoneAt(player.transform.position);
@@ -55,8 +55,12 @@ namespace SpellSlinger
             currentZone = zone;
 
             // Open and close the map
-            if (kb.mKey.wasPressedThisFrame && !dialogue.Active && !caster.IsTargeting && !player.IsDead) SetMap(!mapOpen);
-            else if (mapOpen && kb.escapeKey.wasPressedThisFrame) SetMap(false);
+            if (Controls.Pressed(GameAction.Map) && !dialogue.Active && !caster.IsTargeting && !player.IsDead) SetMap(!mapOpen);
+            else if (mapOpen && Controls.EscapePressed)
+            {
+                Controls.UseEscape(); // closing the map shouldnt also pause the game
+                SetMap(false);
+            }
 
             // Cheat that unlocks every spell, makes testing and showing the game easier
             if (kb.semicolonKey.wasPressedThisFrame)
@@ -90,7 +94,7 @@ namespace SpellSlinger
 
         void OnGUI()
         {
-            if (!player || !caster) return;
+            if (!player || !caster || GameTime.Paused) return; // the pause menu is showing
             InitStyles();
 
             float scale = Screen.height / RefHeight;
@@ -122,13 +126,14 @@ namespace SpellSlinger
                 GUI.Label(new Rect(0, H / 2f - 50, W, 100), "Click to play", center);
             }
 
-            if (bossDefeated && Time.unscaledTime - defeatedTime > 4f) DrawVictory(W, H);
 
             if (!caster.IsTargeting && !dialogue.Active && !mapOpen)
             {
                 Rect(new Rect(0, H - 34, W, 34), new Color(0f, 0f, 0f, 0.35f));
                 GUI.Label(new Rect(0, H - 34, W, 34),
-                    "<b>Q</b> ready wand  ·  <b>E</b> talk  ·  <b>M</b> map  ·  <b>WASD</b> move  ·  <b>Shift</b> sprint  ·  <b>Space</b> jump  ·  <b>;</b> learn all (debug)",
+                    $"<b>{Key(GameAction.ReadyWand)}</b> ready wand  ·  <b>{Key(GameAction.Talk)}</b> talk  ·  <b>{Key(GameAction.Map)}</b> map  ·  " +
+                    $"<b>{Key(GameAction.MoveForward)}{Key(GameAction.MoveLeft)}{Key(GameAction.MoveBack)}{Key(GameAction.MoveRight)}</b> move  ·  <b>{Key(GameAction.Sprint)}</b> sprint  ·  " +
+                    $"<b>{Key(GameAction.Jump)}</b> jump  ·  <b>Esc</b> pause  ·  <b>;</b> learn all (debug)",
                     new GUIStyle(small) { alignment = TextAnchor.MiddleCenter, wordWrap = false, clipping = TextClipping.Overflow });
             }
         }
@@ -164,7 +169,7 @@ namespace SpellSlinger
                 caster.LiveGuess == "???" ? "  ·  <color=#aaaaaa>unrecognised glyph</color>" :
                 $"  ·  <b>{caster.LiveGuess}</b>";
             GUI.Label(new Rect(0, H - 110, W, 40),
-                $"Hold <b>LMB</b> to draw  ·  move the cursor onto a target  ·  <b>RMB</b> cast  ·  <b>Esc</b>/<b>Q</b> cancel{guess}",
+                $"Hold <b>LMB</b> to draw  ·  move the cursor onto a target  ·  <b>RMB</b> cast  ·  <b>Esc</b>/<b>{Key(GameAction.ReadyWand)}</b> cancel{guess}",
                 new GUIStyle(label) { alignment = TextAnchor.MiddleCenter, wordWrap = false, clipping = TextClipping.Overflow });
         }
 
@@ -247,6 +252,11 @@ namespace SpellSlinger
             }
             var boss = MagicEater.Instance;
             if (boss && !boss.IsDead) Mark(Bearing(boss.Home), "<b>MAW</b>", new Color(1f, 0.8f, 0.2f), Dist(boss.Home));
+
+            // quest targets
+            if (SectQuests.Instance)
+                foreach (var q in SectQuests.Instance.Objectives)
+                    if (q.target.HasValue) Mark(Bearing(q.target.Value), "◇", q.color, Dist(q.target.Value));
         }
 
         void DrawObjective()
@@ -254,24 +264,30 @@ namespace SpellSlinger
             string main, sub;
             var boss = MagicEater.Instance;
             if (bossDefeated) { main = "The Magic Eater is slain"; sub = "Magic can be whole again."; }
-            else if (PlayerMagic.Count < SpellBook.All.Count)
+            else
             {
-                main = $"Learn the magic of the sects ({PlayerMagic.Count}/{SpellBook.All.Count})";
-                sub = "The Magic Eater is already immune to your Storm magic. Follow the ◆ markers.";
+                main = "Stop the Magic Eater";
+                sub = $"Learn the sects magic ({PlayerMagic.Count}/{SpellBook.All.Count}) or unite them against it ({Alliance.Count}/{Alliance.SectCount}). " +
+                      "Its already immune to your Storm magic.";
             }
-            else { main = "Face the Magic Eater at the Maw"; sub = "It will devour a new magic every time it loses a quarter of its strength."; }
 
             if (boss && boss.IsAwake && !boss.IsDead)
             {
                 bool canHurt = false;
                 foreach (var s in SpellBook.All)
                     if (s.Known && !boss.IsImmune(s.Element)) canHurt = true;
-                if (!canHurt) sub = "<color=#ff8888>It has devoured every magic you know. Retreat and learn more!</color>";
+                if (!canHurt) sub = "<color=#ff8888>It has devoured every magic you know. Retreat and learn more, or find allies!</color>";
             }
 
-            Rect(new Rect(20, 20, 470, 78), new Color(0f, 0f, 0f, 0.4f));
-            GUI.Label(new Rect(32, 26, 450, 30), $"<b>{main}</b>", label);
-            GUI.Label(new Rect(32, 54, 450, 44), sub, new GUIStyle(small) { wordWrap = true, fontSize = 15 });
+            // quests go underneath, one line each
+            var quests = SectQuests.Instance && !bossDefeated ? SectQuests.Instance.Objectives : new System.Collections.Generic.List<SectQuests.Objective>();
+            float height = 82f + quests.Count * 24f;
+            Rect(new Rect(20, 20, 490, height), new Color(0f, 0f, 0f, 0.4f));
+            GUI.Label(new Rect(32, 26, 470, 30), $"<b>{main}</b>", label);
+            GUI.Label(new Rect(32, 54, 470, 44), sub, new GUIStyle(small) { wordWrap = true, fontSize = 15 });
+            var questStyle = new GUIStyle(small) { fontSize = 16 };
+            for (int i = 0; i < quests.Count; i++)
+                GUI.Label(new Rect(32, 98 + i * 24, 470, 24), $"<color=#{ColorUtility.ToHtmlStringRGB(quests[i].color)}>◆</color> {quests[i].text}", questStyle);
         }
 
         void DrawBossBar(float W)
@@ -345,7 +361,7 @@ namespace SpellSlinger
         void DrawInteractPrompt(float W, float H)
         {
             if (dialogue.Active || !dialogue.InRange) return;
-            string text = $"<b>[E]</b> Talk to {dialogue.InRange.displayName}";
+            string text = $"<b>[{Key(GameAction.Talk)}]</b> Talk to {dialogue.InRange.displayName}";
             Rect(new Rect(W / 2f - 220, H * 0.58f, 440, 44), new Color(0f, 0f, 0f, 0.55f));
             GUI.Label(new Rect(W / 2f - 220, H * 0.58f, 440, 44), text, new GUIStyle(label) { alignment = TextAnchor.MiddleCenter });
         }
@@ -362,7 +378,7 @@ namespace SpellSlinger
             int n = Mathf.Clamp(dialogue.VisibleChars, 0, line.Length);
             GUI.Label(new Rect(box.x + 30, box.y + 58, box.width - 60, 120), line.Substring(0, n), boxText);
             if (n >= line.Length)
-                GUI.Label(new Rect(box.xMax - 260, box.yMax - 38, 240, 30), "<b>[E]</b> continue", new GUIStyle(small) { alignment = TextAnchor.MiddleRight });
+                GUI.Label(new Rect(box.xMax - 260, box.yMax - 38, 240, 30), $"<b>[{Key(GameAction.Talk)}]</b> continue", new GUIStyle(small) { alignment = TextAnchor.MiddleRight });
         }
 
         void DrawMap(float W, float H)
@@ -399,7 +415,7 @@ namespace SpellSlinger
             GUI.Label(new Rect(pm.x - 20, pm.y - 22, 40, 40), "<b>▲</b>", new GUIStyle(label) { alignment = TextAnchor.MiddleCenter, fontSize = 28 });
             GUI.matrix = prevMatrix;
 
-            GUI.Label(new Rect(0, r.y - 50, W, 40), "<b>MAP</b>   <size=17>(click to fast travel - prototype)   ·   M / Esc to close</size>", new GUIStyle(label) { alignment = TextAnchor.MiddleCenter });
+            GUI.Label(new Rect(0, r.y - 50, W, 40), $"<b>MAP</b>   <size=17>(click to fast travel - prototype)   ·   {Key(GameAction.Map)} / Esc to close</size>", new GUIStyle(label) { alignment = TextAnchor.MiddleCenter });
 
             var e = Event.current;
             if (e.type == EventType.MouseDown && r.Contains(e.mousePosition))
@@ -420,15 +436,9 @@ namespace SpellSlinger
             big.normal.textColor = new Color(1f, 0.4f, 0.5f);
             GUI.Label(new Rect(0, H * 0.38f, W, 100), "Your light fades...", big);
             center.normal.textColor = Color.white;
-            GUI.Label(new Rect(0, H * 0.52f, W, 60), "Press R to wake at the Storm Spire", center);
+            GUI.Label(new Rect(0, H * 0.52f, W, 60), $"Press {Key(GameAction.Respawn)} to wake at the Storm Spire", center);
         }
 
-        void DrawVictory(float W, float H)
-        {
-            Rect(new Rect(0, H * 0.72f, W, 90), new Color(0f, 0f, 0f, 0.55f));
-            center.normal.textColor = new Color(1f, 0.95f, 0.7f);
-            GUI.Label(new Rect(0, H * 0.72f, W, 90), "VICTORY  -  you mastered every school of magic.  Thanks for playing the prototype!", center);
-        }
 
         void DrawEnemyBars(float scale)
         {
@@ -470,6 +480,8 @@ namespace SpellSlinger
             Rect(new Rect(r.x + 2, r.y + 2, (r.width - 4) * Mathf.Clamp01(t), r.height - 4), color);
             GUI.Label(new Rect(r.x + 10, r.y - 1, r.width, r.height), $"<size=17><b>{text}</b></size>", label);
         }
+
+        static string Key(GameAction action) => Controls.KeyName(action);
 
         static void Rect(Rect r, Color c)
         {

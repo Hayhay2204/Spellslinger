@@ -85,12 +85,18 @@ namespace SpellSlinger
             foreach (Element e in Enum.GetValues(typeof(Element))) Learn(e);
         }
 
+        // Starting a new game from the main menu forgets everything you learned
+        public static void ResetProgress()
+        {
+            known.Clear();
+            known.Add(Element.Storm);
+        }
+
         // Resets this when you press play in case domain reload is turned off
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetStatics()
         {
-            known.Clear();
-            known.Add(Element.Storm);
+            ResetProgress();
             Learned = null;
         }
     }

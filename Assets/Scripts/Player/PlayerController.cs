@@ -56,22 +56,22 @@ namespace SpellSlinger
 
         void Update()
         {
-            var kb = Keyboard.current;
             var mouse = Mouse.current;
-            if (kb == null || mouse == null) return;
+            if (mouse == null || GameTime.Paused) return;
             float dt = Time.deltaTime;
 
             DamageFlash = Mathf.MoveTowards(DamageFlash, 0f, dt * 2f);
 
             if (IsDead)
             {
-                if (Time.unscaledTime - deathTime > 1f && kb.rKey.wasPressedThisFrame) Respawn();
+                if (Time.unscaledTime - deathTime > 1f && Controls.Pressed(GameAction.Respawn)) Respawn();
                 return;
             }
 
             if (Cursor.lockState == CursorLockMode.Locked && !LookLocked && !MovementLocked)
             {
-                Vector2 d = mouse.delta.ReadValue() * lookSensitivity;
+                Vector2 d = mouse.delta.ReadValue() * lookSensitivity * GameSettings.MouseSensitivity;
+                if (GameSettings.InvertY) d.y = -d.y;
                 yaw += d.x;
                 pitch = Mathf.Clamp(pitch - d.y, -85f, 85f);
             }
@@ -82,14 +82,14 @@ namespace SpellSlinger
             if (!MovementLocked && !IsRooted)
             {
                 input = new Vector2(
-                    (kb.dKey.isPressed ? 1f : 0f) - (kb.aKey.isPressed ? 1f : 0f),
-                    (kb.wKey.isPressed ? 1f : 0f) - (kb.sKey.isPressed ? 1f : 0f));
+                    (Controls.Held(GameAction.MoveRight) ? 1f : 0f) - (Controls.Held(GameAction.MoveLeft) ? 1f : 0f),
+                    (Controls.Held(GameAction.MoveForward) ? 1f : 0f) - (Controls.Held(GameAction.MoveBack) ? 1f : 0f));
             }
-            float speed = moveSpeed * (kb.leftShiftKey.isPressed ? sprintMultiplier : 1f);
+            float speed = moveSpeed * (Controls.Held(GameAction.Sprint) ? sprintMultiplier : 1f);
             Vector3 move = Vector3.ClampMagnitude(transform.right * input.x + transform.forward * input.y, 1f) * speed;
 
             if (cc.isGrounded && verticalVelocity < 0f) verticalVelocity = -2f;
-            if (cc.isGrounded && !MovementLocked && !IsRooted && kb.spaceKey.wasPressedThisFrame)
+            if (cc.isGrounded && !MovementLocked && !IsRooted && Controls.Pressed(GameAction.Jump))
                 verticalVelocity = Mathf.Sqrt(jumpHeight * -2f * gravity);
             verticalVelocity += gravity * dt;
             verticalVelocity = Mathf.Max(verticalVelocity, -40f);

@@ -27,9 +27,13 @@ namespace SpellSlinger
         Combatant seized;
         float age, nextTick;
 
+        // The druid quest listens for this to know when you vine a drained crystal
+        public static event System.Action<Vector3> Grew;
+
         public static VineField Create(VineField prefab, Vector3 groundPos, Combatant target)
         {
             var field = Instantiate(prefab, groundPos, Quaternion.identity);
+            Grew?.Invoke(groundPos);
 
             // Vines on the ground
             for (int i = 0; i < field.groundVines; i++)

@@ -13,6 +13,7 @@ namespace SpellSlinger
         public static MagicEater Instance { get; private set; }
         public static event Action<Element> Devoured;
         public static event Action Defeated;
+        public static event Action Awakened;
 
         public float activationRange = 105f;
         public float leashRange = 190f;
@@ -249,6 +250,7 @@ namespace SpellSlinger
             SFX.PlayAt(SFX.Boom, transform.position, 1f);
             CameraShake.Add(0.6f);
             GameHUD.Banner("THE MAGIC EATER", "It hungers for your magic", new Color(1f, 0.85f, 0.3f));
+            Awakened?.Invoke();
         }
 
         static Vector3 Flat(Vector3 v) => new(v.x, 0f, v.z);
@@ -289,13 +291,18 @@ namespace SpellSlinger
             // Eat whatever magic did the most damage this phase, if nothing did just pick one it isnt immune to yet
             Element? pick = null;
             float most = 0f;
+            // It cant eat magic from a sect thats sided with you, they protect it together
             foreach (var kv in phaseDamage)
-                if (!immunities.Contains(kv.Key) && kv.Value > most) { most = kv.Value; pick = kv.Key; }
+                if (!immunities.Contains(kv.Key) && !Alliance.Protects(kv.Key) && kv.Value > most) { most = kv.Value; pick = kv.Key; }
             if (pick == null)
                 foreach (Element e in Enum.GetValues(typeof(Element)))
-                    if (!immunities.Contains(e)) { pick = e; break; }
+                    if (!immunities.Contains(e) && !Alliance.Protects(e)) { pick = e; break; }
             phaseDamage.Clear();
-            if (pick == null) return;
+            if (pick == null)
+            {
+                if (Alliance.Count > 0) ChokeOnUnitedMagic();
+                return;
+            }
 
             var element = pick.Value;
             immunities.Add(element);
@@ -322,6 +329,20 @@ namespace SpellSlinger
             });
             Devoured?.Invoke(element);
             nextAttack = Time.time + 1.2f;
+        }
+
+        // Every magic left is protected by the sects so it tries to eat and cant
+        void ChokeOnUnitedMagic()
+        {
+            roar = 1f;
+            GameTime.Dramatic(0.3f, 1.2f);
+            FX.Flash(AimPoint, Color.white, 15f, 60f, 1f);
+            foreach (var spell in SpellBook.All)
+                if (Alliance.Protects(spell.Element)) FX.Burst(AimPoint, spell.Color, 40, 12f, 0.4f, 1.2f);
+            SFX.Play2D(SFX.Chime, 1f, 0f);
+            CameraShake.Add(0.5f);
+            GameHUD.Banner("THE SECTS STAND TOGETHER", "Their magic flows as one. The Magic Eater cant swallow it", new Color(1f, 0.95f, 0.7f));
+            stunnedUntil = Time.time + 2f; // choking on it stuns it no matter what its immune to
         }
 
         void Die()

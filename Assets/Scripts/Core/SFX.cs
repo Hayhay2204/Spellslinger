@@ -35,7 +35,7 @@ namespace SpellSlinger
                 source2D.spatialBlend = 0f;
             }
             source2D.pitch = 1f + UnityEngine.Random.Range(-pitchJitter, pitchJitter);
-            source2D.PlayOneShot(clip, volume);
+            source2D.PlayOneShot(clip, volume * GameSettings.SfxVolume);
         }
 
         public static void PlayAt(AudioClip clip, Vector3 pos, float volume = 1f)
@@ -44,7 +44,7 @@ namespace SpellSlinger
             go.transform.position = pos;
             var src = go.AddComponent<AudioSource>();
             src.clip = clip;
-            src.volume = volume;
+            src.volume = volume * GameSettings.SfxVolume;
             src.spatialBlend = 0.8f;
             src.minDistance = 4f;
             src.maxDistance = 60f;

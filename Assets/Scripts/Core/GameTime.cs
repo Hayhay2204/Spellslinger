@@ -6,6 +6,8 @@ namespace SpellSlinger
     public class GameTime : MonoBehaviour
     {
         public static bool Targeting { get; set; }
+        // Set by the pause menu, stops time completely
+        public static bool Paused { get; set; }
         public static float TargetingScale { get; set; } = 0.3f;
         static float dramaticScale = 1f, dramaticUntil;
 
@@ -20,13 +22,15 @@ namespace SpellSlinger
             float scale = 1f;
             if (Targeting) scale = Mathf.Min(scale, TargetingScale);
             if (Time.unscaledTime < dramaticUntil) scale = Mathf.Min(scale, dramaticScale);
+            if (Paused) scale = 0f;
             Time.timeScale = scale;
-            Time.fixedDeltaTime = 0.02f * scale;
+            Time.fixedDeltaTime = 0.02f * Mathf.Max(scale, 0.01f); // fixed delta cant be 0
         }
 
         void OnDestroy()
         {
             Targeting = false;
+            Paused = false;
             dramaticUntil = 0f;
             Time.timeScale = 1f;
             Time.fixedDeltaTime = 0.02f;

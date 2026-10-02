@@ -29,12 +29,16 @@ namespace SpellSlinger
         {
             var kb = Keyboard.current;
             var mouse = Mouse.current;
-            if (kb == null || mouse == null || !player) return;
+            if (kb == null || mouse == null || !player || GameTime.Paused) return;
 
             if (Active)
             {
-                bool advance = kb.eKey.wasPressedThisFrame || kb.spaceKey.wasPressedThisFrame || kb.enterKey.wasPressedThisFrame || mouse.leftButton.wasPressedThisFrame;
-                if (kb.escapeKey.wasPressedThisFrame) End();
+                bool advance = Controls.Pressed(GameAction.Talk) || kb.spaceKey.wasPressedThisFrame || kb.enterKey.wasPressedThisFrame || mouse.leftButton.wasPressedThisFrame;
+                if (Controls.EscapePressed)
+                {
+                    Controls.UseEscape(); // leaving a conversation shouldnt also pause the game
+                    End();
+                }
                 else if (advance)
                 {
                     // First press shows the whole line, second press goes to the next one
@@ -53,7 +57,7 @@ namespace SpellSlinger
                 float d = (npc.transform.position - player.transform.position).sqrMagnitude;
                 if (d < best) { best = d; InRange = npc; }
             }
-            if (InRange && kb.eKey.wasPressedThisFrame) Begin(InRange);
+            if (InRange && Controls.Pressed(GameAction.Talk)) Begin(InRange);
         }
 
         public int VisibleChars => Mathf.FloorToInt((Time.unscaledTime - LineStartTime) * 55f);
@@ -76,10 +80,14 @@ namespace SpellSlinger
             caster.Blocked = true;
         }
 
+        // Fires when you get to the end of a conversation (not when you walk off with Esc)
+        public static event System.Action<NPC> ConversationFinished;
+
         void Finish()
         {
             var npc = talkingTo;
             End();
+            if (npc) ConversationFinished?.Invoke(npc);
             if (npc && npc.teaches && !PlayerMagic.Knows(npc.teachesElement))
             {
                 PlayerMagic.Learn(npc.teachesElement);

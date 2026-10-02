@@ -54,14 +54,14 @@ namespace SpellSlinger
             if (!gulped)
             {
                 // everything goes quiet while it breathes in
-                AudioListener.volume = 1f - Mathf.Clamp01(t / 0.3f);
+                AudioListener.volume = GameSettings.MasterVolume * (1f - Mathf.Clamp01(t / 0.3f));
                 if (t >= gulpAt) FinishGulp();
             }
 
             if (t >= length)
             {
                 cam.fieldOfView = baseFov;
-                AudioListener.volume = 1f;
+                AudioListener.volume = GameSettings.MasterVolume;
                 playing = false;
                 return;
             }
@@ -76,7 +76,7 @@ namespace SpellSlinger
         void FinishGulp()
         {
             gulped = true;
-            AudioListener.volume = 1f;
+            AudioListener.volume = GameSettings.MasterVolume;
             var g = onGulp;
             onGulp = null;
             g?.Invoke();
@@ -84,7 +84,7 @@ namespace SpellSlinger
 
         void OnDisable()
         {
-            AudioListener.volume = 1f;
+            AudioListener.volume = GameSettings.MasterVolume;
             if (cam && playing) cam.fieldOfView = baseFov;
             playing = false;
         }

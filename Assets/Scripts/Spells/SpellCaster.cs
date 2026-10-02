@@ -71,8 +71,7 @@ namespace SpellSlinger
         void Update()
         {
             var mouse = Mouse.current;
-            var kb = Keyboard.current;
-            if (mouse == null || kb == null) return;
+            if (mouse == null || GameTime.Paused) return;
 
             UpdateLineFade();
 
@@ -94,24 +93,20 @@ namespace SpellSlinger
 
             if (!IsTargeting)
             {
-                if (kb.qKey.wasPressedThisFrame || mouse.middleButton.wasPressedThisFrame) EnterTargeting();
-                else if (kb.escapeKey.wasPressedThisFrame)
-                {
-                    Cursor.lockState = CursorLockMode.None;
-                    Cursor.visible = true;
-                }
+                if (Controls.Pressed(GameAction.ReadyWand) || mouse.middleButton.wasPressedThisFrame) EnterTargeting();
                 return;
             }
 
             // While targeting
-            if (kb.escapeKey.wasPressedThisFrame || kb.qKey.wasPressedThisFrame || mouse.middleButton.wasPressedThisFrame)
+            if (Controls.EscapePressed || Controls.Pressed(GameAction.ReadyWand) || mouse.middleButton.wasPressedThisFrame)
             {
+                if (Controls.EscapePressed) Controls.UseEscape(); // cancelling a spell shouldnt also pause the game
                 ExitTargeting();
                 FadeLines(new Color(0.5f, 0.5f, 0.5f));
                 return;
             }
 
-            Vector2 p = CursorPos + mouse.delta.ReadValue() * drawSensitivity;
+            Vector2 p = CursorPos + mouse.delta.ReadValue() * drawSensitivity * GameSettings.DrawSensitivity;
             p.x = Mathf.Clamp(p.x, 0f, Screen.width);
             p.y = Mathf.Clamp(p.y, 0f, Screen.height);
             CursorPos = p;

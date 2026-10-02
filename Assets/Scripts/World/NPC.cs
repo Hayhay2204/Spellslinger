@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -45,7 +46,12 @@ namespace SpellSlinger
                 transform.rotation = Quaternion.Slerp(transform.rotation, Quaternion.LookRotation(to), 1f - Mathf.Exp(-5f * Time.deltaTime));
         }
 
-        public string[] CurrentLines =>
+        // The quests use this to give mentors different things to say depending on how far along you are
+        public static Func<NPC, string[]> LinesOverride;
+
+        public string[] CurrentLines => LinesOverride?.Invoke(this) ?? DefaultLines;
+
+        string[] DefaultLines =>
             teaches && PlayerMagic.Knows(teachesElement) && linesAfterLearning != null && linesAfterLearning.Length > 0 ? linesAfterLearning : lines;
     }
 }

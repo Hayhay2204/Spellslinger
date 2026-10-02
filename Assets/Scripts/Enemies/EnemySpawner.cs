@@ -14,6 +14,10 @@ namespace SpellSlinger
         [Range(0f, 1f)] public float bruteChance = 0.15f;
         public float respawnDelay = 45f;
 
+        // Fires once each time the player kills the whole camp
+        public event System.Action<EnemySpawner> Cleared;
+        public bool IsCleared => alive.Count == 0;
+
         readonly List<Enemy> alive = new();
         float clearedAt = -1f;
 
@@ -24,13 +28,17 @@ namespace SpellSlinger
             alive.RemoveAll(e => e == null);
             if (alive.Count > 0) return;
 
-            if (clearedAt < 0f) clearedAt = Time.time;
+            if (clearedAt < 0f)
+            {
+                clearedAt = Time.time;
+                Cleared?.Invoke(this);
+            }
             var player = PlayerController.Instance;
             bool playerFar = !player || Vector3.Distance(player.transform.position, transform.position) > 60f;
             if (Time.time - clearedAt > respawnDelay && playerFar) Populate();
         }
 
-        void Populate()
+        public void Populate()
         {
             clearedAt = -1f;
             for (int i = 0; i < count; i++)
